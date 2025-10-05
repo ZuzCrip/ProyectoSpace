@@ -83,10 +83,18 @@ export default function WelcomePageES({ onSearch, userData, onBack }: Props) {
     inputRef.current?.focus();
   }
 
-  function openArticle(r: APISearchResult) {
-    const url = `/article?url=${encodeURIComponent(r.url)}&title=${encodeURIComponent(r.title)}`;
-    navigate(url);
-  }
+function openArticle(r: APISearchResult) {
+  const params = new URLSearchParams({
+    url: r.url,
+    title: r.title,
+    userType: (userData.userType || "entusiasta"),
+    userName: userData.name || "",
+    userInterests: (userData.interests || []).join(", "),
+    userExperience: userData.experience || ""
+  });
+  navigate(`/article?${params.toString()}`);
+}
+
 
   return (
     <div className="min-h-screen px-6 py-8">
@@ -130,4 +138,5 @@ export default function WelcomePageES({ onSearch, userData, onBack }: Props) {
       </div>
     </div>
   );
+
 }

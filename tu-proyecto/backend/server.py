@@ -80,15 +80,27 @@ def search(q: str = Query("", min_length=0)):
     return results
 
 # /api/summarize (si tienes summary.py)
+# ...imports iguales...
 try:
     from summary import summarize_url_dict
 
     @app.get("/api/summarize")
-    def summarize(url: str = Query(...)):
+    def summarize(
+        url: str = Query(...),
+        userType: str = Query("entusiasta"),
+        userName: str = Query("", alias="userName"),
+        userInterests: str = Query("", alias="userInterests"),
+        userExperience: str = Query("", alias="userExperience"),
+    ):
         if not url.lower().startswith(("http://", "https://")):
             raise HTTPException(status_code=400, detail="URL inválida")
         try:
-            return summarize_url_dict(url)
+            user_ctx = {
+                "name": userName.strip(),
+                "interests": [s.strip() for s in userInterests.split(",") if s.strip()],
+                "experience": userExperience.strip(),
+            }
+            return summarize_url_dict(url, userType, user_context=user_ctx)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"No se pudo resumir la URL: {e}")
 except Exception as e:

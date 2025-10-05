@@ -19,8 +19,19 @@ export async function apiSearch(query: string): Promise<APISearchResult[]> {
   }));
 }
 
-export async function apiSummarize(url: string): Promise<{title?:string; source?:string; summary:string}> {
-  const res = await fetch(`/api/summarize?url=${encodeURIComponent(url)}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
+export async function apiSummarize(
+  url: string,
+  userType?: string,
+  user?: { name?: string; interests?: string[]; experience?: string }
+): Promise<{ title: string; source: string; summary: string }> {
+  const qs = new URLSearchParams({ url });
+  if (userType) qs.set("userType", userType);
+  if (user?.name) qs.set("userName", user.name);
+  if (user?.experience) qs.set("userExperience", user.experience);
+  if (user?.interests?.length) qs.set("userInterests", user.interests.join(", "));
+
+  const res = await fetch(`/api/summarize?${qs.toString()}`);
+  if (!res.ok) throw new Error("Error al generar resumen");
+  return res.json();
 }
+
