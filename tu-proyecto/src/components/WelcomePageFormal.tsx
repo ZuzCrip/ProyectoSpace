@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from "react";
-import { apiSearch } from "../api/client.ts";    
+import { apiSearch, apiSummarize, APISearchResult } from "../api/client";
 
 interface UserData {
   email: string;
@@ -9,42 +9,29 @@ interface UserData {
   name: string;
 }
 
-interface SearchResult {
-  id?: string | number;
-  title: string;
-  url: string;
-  source?: string;
-  summary?: string;
-}
-
 interface WelcomePageFormalProps {
   onSearch?: (query: string) => void;
   userData: UserData;
   onBack: () => void;
+  onShowSummary: (summaryData: { title: string; source: string; summary: string }) => void;
 }
 
 export default function WelcomePageFormal({
   onSearch,
   userData,
   onBack,
+  onShowSummary,
 }: WelcomePageFormalProps) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<SearchResult[]>([]);
-
-  // --- modal para resumen ---
-  const [open, setOpen] = useState(false);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [summaryHTML, setSummaryHTML] = useState<string>("");
-  const [summaryTitle, setSummaryTitle] = useState<string>("");
+  const [results, setResults] = useState<APISearchResult[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState<string | null>(null);
 
   const baseSuggestions = [
     "microgravedad",
-    "biología espacial",
+    "biología espacial", 
     "radiación y células",
     "cultivo de plantas",
     "microbioma en órbita",
@@ -70,12 +57,7 @@ export default function WelcomePageFormal({
   const [suggestions] = useState(getPersonalizedSuggestions());
 
   const terms = useMemo(
-    () =>
-      query
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 6),
+    () => query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6),
     [query]
   );
 
@@ -127,7 +109,7 @@ export default function WelcomePageFormal({
   const getUserTypeLabel = (type: string) => {
     const labels: { [key: string]: string } = {
       scientist: "Científico/Investigador",
-      student: "Estudiante",
+      student: "Estudiante", 
       educator: "Educador",
       enthusiast: "Entusiasta",
       journalist: "Periodista",
@@ -136,33 +118,42 @@ export default function WelcomePageFormal({
     return labels[type] || "Usuario";
   };
 
-  // --- manejar clic en resultado: abrir modal con resumen ---
-  async function handleResultClick(e: React.MouseEvent, r: SearchResult) {
-    e.preventDefault();
-    setOpen(true);
-    setSummaryLoading(true);
-    setSummaryError(null);
-    setSummaryHTML("");
-    setSummaryTitle(r.title);
-
+  // --- NUEVA FUNCIÓN: Navegar a página de resumen ---
+  async function handleResultClick(r: APISearchResult) {
+    setSummaryLoading(r.url);
+    
     try {
-      const res = await fetch(`/api/summarize?url=${encodeURIComponent(r.url)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setSummaryHTML(
-        data.summary?.replace(/\n/g, "<br/>") ||
-          "No se pudo generar el resumen del artículo."
-      );
+      const data = await apiSummarize(r.url);
+      
+      if (data.summary && typeof data.summary === 'string') {
+        // Navegar a la página de resumen con los datos
+        onShowSummary({
+          title: r.title,
+          source: r.source || new URL(r.url).hostname,
+          summary: data.summary
+        });
+      } else {
+        // Fallback si no hay resumen
+        onShowSummary({
+          title: r.title,
+          source: r.source || new URL(r.url).hostname,
+          summary: "No se pudo generar el resumen del artículo."
+        });
+      }
     } catch (err: any) {
-      setSummaryError(err?.message || "Error al obtener el resumen.");
+      // En caso de error, mostrar página con mensaje de error
+      onShowSummary({
+        title: r.title,
+        source: r.source || new URL(r.url).hostname,
+        summary: `Error al obtener el resumen: ${err?.message || "Error desconocido"}`
+      });
     } finally {
-      setSummaryLoading(false);
+      setSummaryLoading(null);
     }
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-emerald-50 to-white text-gray-900">
-      {/* Header */}
       <header className="w-full bg-white border-b border-black/10">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -184,7 +175,6 @@ export default function WelcomePageFormal({
         </div>
       </header>
 
-      {/* HERO */}
       <section className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
         <div className="space-y-6">
           <h1 className="text-4xl md:text-5xl font-extrabold text-black leading-tight">
@@ -226,7 +216,6 @@ export default function WelcomePageFormal({
               </div>
             )}
 
-            {/* Estado de búsqueda */}
             <div className="mt-4">
               {loading && <div className="text-sm text-gray-600">Buscando resultados…</div>}
               {error && <div className="text-sm text-red-600">⚠ {error}</div>}
@@ -237,16 +226,23 @@ export default function WelcomePageFormal({
                   </div>
                   <ul className="divide-y divide-black/10">
                     {results.map((r, idx) => (
-                      <li key={r.id ?? idx} className="px-4 py-3">
-                        <button
-                            onClick={(e) => handleResultClick(e, r)}
-                            className="text-left w-full text-[15px] font-semibold text-black hover:underline cursor-pointer"
-                            title={r.title}
-                            >
-                            {highlight(r.title)}
-                            </button>
-                        <div className="text-xs text-gray-600 mt-1">
-                          {r.source ? r.source : new URL(r.url).hostname}
+                      <li 
+                        key={r.id ?? idx} 
+                        className="px-4 py-3 hover:bg-gray-50 transition cursor-pointer"
+                        onClick={() => handleResultClick(r)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="text-[15px] font-semibold text-black hover:text-emerald-700">
+                              {highlight(r.title)}
+                            </div>
+                            <div className="text-xs text-gray-600 mt-1">
+                              {r.source ? r.source : new URL(r.url).hostname}
+                            </div>
+                          </div>
+                          {summaryLoading === r.url && (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-emerald-600 ml-2"></div>
+                          )}
                         </div>
                       </li>
                     ))}
@@ -257,7 +253,7 @@ export default function WelcomePageFormal({
 
             {!loading && !error && results.length === 0 && query.trim().length > 0 && (
               <div className="text-sm text-gray-600 mt-2">
-                No se encontraron resultados para “{query}”.
+                No se encontraron resultados para "{query}".
               </div>
             )}
           </div>
@@ -270,57 +266,41 @@ export default function WelcomePageFormal({
           </div>
         </div>
 
-        {/* Right column */}
         <div className="order-first md:order-last">
           <div className="w-full h-64 md:h-80 rounded-xl border border-black/10 bg-white shadow-sm flex items-center justify-center">
             <div className="text-center px-6">
-              <div className="inline-block p-4 rounded-full bg-emerald-100 text-3xl mb-4">
-                🧬
-              </div>
+              <div className="inline-block p-4 rounded-full bg-emerald-100 text-3xl mb-4">🧬</div>
               <div className="text-sm text-gray-600">Visualización científica</div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Modal de resumen */}
-      {open && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-lg max-w-2xl w-[92%] p-5">
-            <div className="flex justify-between items-center mb-3">
-              <h4 className="font-semibold text-lg">{summaryTitle}</h4>
-              <button
-                onClick={() => setOpen(false)}
-                className="px-3 py-1 text-sm rounded bg-black text-white hover:bg-emerald-700"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            {summaryLoading && <div className="text-sm text-gray-600">Generando resumen…</div>}
-            {summaryError && <div className="text-sm text-red-600">⚠ {summaryError}</div>}
-            {!summaryLoading && !summaryError && (
-              <div
-                className="text-sm text-gray-700 whitespace-pre-line"
-                dangerouslySetInnerHTML={{ __html: summaryHTML }}
-              />
-            )}
-          </div>
+      <section className="max-w-7xl mx-auto px-6 pb-12">
+        <div className="grid gap-6 md:grid-cols-3">
+          {[
+            { icon: "🌱", title: "Agricultura Espacial", text: "Estudios y ensayos sobre cultivos en microgravedad y sistemas de soporte vital." },
+            { icon: "🧬", title: "Biología Celular", text: "Investigaciones sobre radiación, daño al ADN y respuestas celulares." },
+            { icon: "🦠", title: "Microbioma", text: "Comportamiento de comunidades microbianas en órbita y su impacto." }
+          ].map((c, i) => (
+            <article key={i} className="bg-white rounded-xl border border-black/10 p-6 shadow-sm hover:shadow-md transition">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="h-12 w-12 rounded-md bg-emerald-50 flex items-center justify-center text-2xl">{c.icon}</div>
+                <h3 className="text-lg font-semibold text-black">{c.title}</h3>
+              </div>
+              <p className="text-sm text-gray-600">{c.text}</p>
+            </article>
+          ))}
         </div>
-      )}
+      </section>
 
-      {/* FOOTER */}
       <footer className="mt-auto bg-black text-white">
         <div className="max-w-7xl mx-auto px-6 py-6 flex flex-col md:flex-row justify-between items-center text-sm">
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 bg-white text-black rounded-md flex items-center justify-center font-semibold">
-              N
-            </div>
+            <div className="h-8 w-8 bg-white text-black rounded-md flex items-center justify-center font-semibold">N</div>
             <div>NASA BioSpace — Portal de Biología Espacial</div>
           </div>
-          <div className="text-gray-200 mt-4 md:mt-0">
-            © 2025 — Ciencia con propósito y claridad
-          </div>
+          <div className="text-gray-200 mt-4 md:mt-0">© 2025 — Ciencia con propósito y claridad</div>
         </div>
       </footer>
     </div>

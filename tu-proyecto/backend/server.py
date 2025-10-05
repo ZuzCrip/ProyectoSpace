@@ -1,50 +1,63 @@
 # backend/server.py
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from urllib.parse import urlparse
 from typing import List, Dict
 import os, csv, re
 
-app = FastAPI()
+app = FastAPI()  # 👈👈 IMPORTANTE: variable "app" a nivel de módulo
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---- CSV
 BASE_DIR = os.path.dirname(__file__)
-CSV_PATH = os.path.join(BASE_DIR, "data", "publications.csv")
+CSV_PATH = os.path.join(BASE_DIR, "data", os.getenv("CSV_FILE", "SB_publication_PMC.csv"))
 
-FALLBACK_DATA: List[Dict] = [
-    {"id": 1, "title": "Efectos de la microgravedad en células madre", "url": "https://ejemplo.test/microgravedad-celulas", "source": "ejemplo.test"},
-    {"id": 2, "title": "Microbioma de astronautas en la ISS", "url": "https://ejemplo.test/microbioma-iss", "source": "ejemplo.test"},
-]
+def _first_nonempty(d: dict, keys: list[str]) -> str:
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            v = v.strip()
+            if v:
+                return v
+    return ""
+
+def _domain(u: str) -> str | None:
+    try:
+        return urlparse(u).netloc or None
+    except:
+        return None
 
 def load_csv_or_fallback() -> List[Dict]:
     data: List[Dict] = []
     if os.path.exists(CSV_PATH):
         try:
-            with open(CSV_PATH, newline="", encoding="utf-8") as f:
+            with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 for i, row in enumerate(reader):
-                    title = (row.get("title") or row.get("Title") or "").strip()
-                    url = (row.get("url") or row.get("link") or row.get("URL") or "").strip()
-                    source = (row.get("source") or row.get("domain") or "").strip() or None
-                    if title and url:
-                        data.append({"id": i+1, "title": title, "url": url, "source": source})
-        except Exception:
-            data = FALLBACK_DATA
-    else:
-        data = FALLBACK_DATA
+                    title = _first_nonempty(row, ["title","Title"])
+                    url   = _first_nonempty(row, ["url","URL","Url","link","Link","HREF","Href"])
+                    if not title or not url:
+                        continue
+                    source = _first_nonempty(row, ["source","Source","domain","Domain"]) or _domain(url)
+                    data.append({"id": i+1, "title": title, "url": url, "source": source})
+        except Exception as e:
+            print("[CSV] Error leyendo CSV:", e)
+    if not data:
+        data = [
+            {"id": 1, "title": "Fila de ejemplo", "url": "https://example.org/a", "source": "example.org"},
+        ]
     return data
 
 DATA = load_csv_or_fallback()
 
 def score_match(title: str, terms: List[str]) -> int:
-    t = title.lower()
+    t = (title or "").lower()
     s = 0
     for w in terms:
         if w in t: s += 2
@@ -54,7 +67,7 @@ def score_match(title: str, terms: List[str]) -> int:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "count": len(DATA)}
+    return {"ok": True, "count": len(DATA), "csv": os.path.basename(CSV_PATH)}
 
 @app.get("/api/search")
 def search(q: str = Query("", min_length=0)):
@@ -66,11 +79,17 @@ def search(q: str = Query("", min_length=0)):
     results.sort(key=lambda it: score_match(it["title"], terms), reverse=True)
     return results
 
-# /api/summarize (si tienes backend/summary.py con summarize_url_dict)
+# /api/summarize (si tienes summary.py)
 try:
     from summary import summarize_url_dict
+
     @app.get("/api/summarize")
     def summarize(url: str = Query(...)):
-        return summarize_url_dict(url)
-except Exception:
-    pass
+        if not url.lower().startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="URL inválida")
+        try:
+            return summarize_url_dict(url)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"No se pudo resumir la URL: {e}")
+except Exception as e:
+    print("[summary] Endpoint de resumen desactivado:", e)
