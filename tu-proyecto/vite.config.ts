@@ -1,4 +1,3 @@
-
 import type { UserConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import { defineConfig } from 'vite'
@@ -10,23 +9,10 @@ export default defineConfig(({ mode }) => {
   if (mode === 'development') {
     build = {
       minify: false,
-      rollupOptions: {
-        output: {
-          manualChunks: undefined,
-        },
-      },
+      rollupOptions: { output: { manualChunks: undefined } },
     }
-
-    esbuild = {
-      jsxDev: true,
-      keepNames: true,
-      minifyIdentifiers: false,
-    }
-
-    define = {
-      'process.env.NODE_ENV': '"development"',
-      '__DEV__': 'true',
-    }
+    esbuild = { jsxDev: true, keepNames: true, minifyIdentifiers: false }
+    define = { 'process.env.NODE_ENV': '"development"', '__DEV__': 'true' }
   }
 
   return {
@@ -34,14 +20,18 @@ export default defineConfig(({ mode }) => {
     build,
     esbuild,
     define,
-    resolve: {
-      alias: {
-        '@': '/src',
-      }
+    resolve: { alias: { '@': '/src' } },
+    optimizeDeps: { exclude: ['lucide-react'] },
+
+    // 👇👇👇  AÑADE ESTO
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
+      },
     },
-    optimizeDeps: {
-      exclude: ['lucide-react'],
-    },
+    // ☝️☝️☝️
   }
 })
-

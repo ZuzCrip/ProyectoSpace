@@ -1,4 +1,6 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
+import { apiSearch } from "../../backend/api/client.ts";              
+import { useNavigate } from "react-router-dom"; 
 
 interface UserData {
   email: string;
@@ -6,6 +8,14 @@ interface UserData {
   interests: string[];
   experience: string;
   name: string;
+}
+
+interface SearchResult {
+  id?: string | number;
+  title: string;
+  url: string;
+  source?: string;   // dominio o colección
+  summary?: string;  // opcional (si el backend ya resume)
 }
 
 interface WelcomePageFormalProps {
@@ -21,6 +31,11 @@ export default function WelcomePageFormal({
 }: WelcomePageFormalProps) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- NUEVO estado para resultados ---
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<SearchResult[]>([]);
 
   const baseSuggestions = [
     "microgravedad",
@@ -49,11 +64,83 @@ export default function WelcomePageFormal({
 
   const [suggestions] = useState(getPersonalizedSuggestions());
 
-  function handleSubmit(e: React.FormEvent) {
+  // --- util para resaltar los términos de búsqueda en los títulos ---
+  const terms = useMemo(() => {
+    return query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 6); // evitar exceso
+  }, [query]);
+
+  function highlight(text: string) {
+    if (!terms.length) return text;
+    const pattern = new RegExp(`(${terms.map(t => escapeRegExp(t)).join("|")})`, "ig");
+    const parts = text.split(pattern);
+    return (
+      <>
+        {parts.map((p, i) =>
+          pattern.test(p) ? (
+            <mark key={i} className="bg-emerald-200 rounded px-1">{p}</mark>
+          ) : (
+            <span key={i}>{p}</span>
+          )
+        )}
+      </>
+    );
+  }
+
+  function escapeRegExp(str: string) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    if (onSearch) onSearch(q);
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Llama al backend. Debe devolver una lista de objetos { title, url, source?, summary? }
+      const data = await apiSearch(q);
+      if (!Array.isArray(data)) {
+        throw new Error("Respuesta inesperada del servidor");
+      }
+
+      // Orden simple: prioriza coincidencias fuertes en el título
+      const qLower = q.toLowerCase();
+      const ranked = [...data].sort((a: SearchResult, b: SearchResult) => {
+        const at = a.title?.toLowerCase() || "";
+        const bt = b.title?.toLowerCase() || "";
+        const ascore = scoreMatch(at, qLower);
+        const bscore = scoreMatch(bt, qLower);
+        return bscore - ascore;
+      });
+
+      setResults(ranked);
+      onSearch?.(q);
+    } catch (err: any) {
+      setError(err?.message || "Ocurrió un error al buscar.");
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function scoreMatch(text: string, q: string) {
+    // Puntos por aparición de palabras completas
+    const w = q.split(/\s+/).filter(Boolean);
+    let s = 0;
+    for (const t of w) {
+      if (text.includes(t)) s += 2;
+      // boost extra si coincide palabra completa
+      if (new RegExp(`\\b${escapeRegExp(t)}\\b`, "i").test(text)) s += 3;
+    }
+    // bonus si empieza con el término
+    if (text.startsWith(w[0] || "")) s += 3;
+    return s;
   }
 
   function handleSuggestionClick(s: string) {
@@ -138,6 +225,52 @@ export default function WelcomePageFormal({
                 ))}
               </div>
             )}
+
+            {/* --- NUEVO: Estado de búsqueda --- */}
+            <div className="mt-4">
+              {loading && (
+                <div className="text-sm text-gray-600">Buscando resultados…</div>
+              )}
+              {error && (
+                <div className="text-sm text-red-600">⚠ {error}</div>
+              )}
+              {!loading && !error && results.length > 0 && (
+                <div className="mt-2 border border-black/10 rounded-lg bg-white">
+                  <div className="px-4 py-3 border-b border-black/10 text-sm text-gray-600">
+                    {results.length} resultado{results.length === 1 ? "" : "s"}
+                  </div>
+                  <ul className="divide-y divide-black/10">
+                    {results.map((r, idx) => (
+                      <li key={r.id ?? idx} className="px-4 py-3">
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[15px] font-semibold text-black hover:underline"
+                          title={r.title}
+                        >
+                          {highlight(r.title)}
+                        </a>
+                        <div className="text-xs text-gray-600 mt-1">
+                          {r.source ? r.source : new URL(r.url).hostname}
+                        </div>
+                        {r.summary ? (
+                          <p className="text-sm text-gray-700 mt-2 line-clamp-3">
+                            {r.summary}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!loading && !error && results.length === 0 && query.trim().length > 0 && (
+                <div className="text-sm text-gray-600 mt-2">
+                  No se encontraron resultados para “{query}”.
+                </div>
+              )}
+            </div>
+            {/* --- FIN estado de búsqueda --- */}
           </div>
 
           <div className="mt-4 text-sm text-gray-600">
