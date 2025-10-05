@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from "react";
-import { apiSearch } from "../../backend/api/client.ts";    
+import { apiSearch } from "../api/client.ts";    
 
 interface UserData {
   email: string;

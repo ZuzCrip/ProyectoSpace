@@ -26,6 +26,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "backend/api"]
+  "include": ["src", "src/api"]
 }
 
