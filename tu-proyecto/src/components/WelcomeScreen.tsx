@@ -1,11 +1,22 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 interface UserData {
   email: string;
-  userType: string;
+  userType: number | null; // perfil_id
   interests: string[];
-  experience: string;
+  experience: number | null; // experiencia_id
   name: string;
+  password: string;
+}
+
+interface Profile {
+  id: number;
+  tipo: string;
+}
+
+interface Experience {
+  id: number;
+  nivel: string;
 }
 
 interface WelcomeScreenProps {
@@ -15,18 +26,33 @@ interface WelcomeScreenProps {
 export default function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
   const [formData, setFormData] = useState<UserData>({
     email: "",
-    userType: "",
+    userType: null,
     interests: [],
-    experience: "",
+    experience: null,
     name: "",
+    password: "",
   });
 
-  const userTypes = [
-    { value: "scientist", label: "Científico", icon: "🔬" },
-    { value: "student", label: "Estudiante", icon: "🎓" },
-    { value: "educator", label: "Educador", icon: "👨‍🏫" },
-    { value: "enthusiast", label: "Entusiasta", icon: "🌿" },
-  ];
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [experiences, setExperiences] = useState<Experience[]>([]);
+
+  // Fetch perfiles y experiencias
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const resProfiles = await fetch("http://127.0.0.1:8000/perfiles");
+        const dataProfiles = await resProfiles.json();
+        setProfiles(dataProfiles);
+
+        const resExperiences = await fetch("http://127.0.0.1:8000/experiencias/");
+        const dataExperiences = await resExperiences.json();
+        setExperiences(dataExperiences);
+      } catch (error) {
+        console.error("Error cargando opciones:", error);
+      }
+    };
+    fetchData();
+  }, []);
 
   const researchInterests = [
     "Microgravedad",
@@ -34,13 +60,6 @@ export default function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
     "Microbioma espacial",
     "Radiación y ADN",
     "Astrobiología",
-  ];
-
-  const experienceLevels = [
-    { value: "beginner", label: "Principiante" },
-    { value: "intermediate", label: "Intermedio" },
-    { value: "advanced", label: "Avanzado" },
-    { value: "expert", label: "Experto" },
   ];
 
   const handleInterestToggle = (interest: string) => {
@@ -52,14 +71,44 @@ export default function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.email && formData.userType && formData.name) {
-      onComplete(formData);
+
+    if (formData.email && formData.userType && formData.name && formData.password) {
+      try {
+        const body = {
+          nombre: formData.name,
+          correo: formData.email,
+          contrasena: formData.password,
+          perfil_id: formData.userType,
+          experiencia_id: formData.experience,
+        };
+
+        const res = await fetch("http://127.0.0.1:8000/usuarios", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) throw new Error("Error al registrar usuario");
+
+        const userData = await res.json();
+
+        // Guardar en localStorage
+        localStorage.setItem("user", JSON.stringify(userData));
+
+        // Llamar al callback
+        onComplete(formData);
+      } catch (error) {
+        console.error("Error en el registro:", error);
+      }
     }
   };
 
-  const isFormValid = formData.email && formData.userType && formData.name;
+  const isFormValid =
+    formData.email && formData.userType && formData.name && formData.password;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-100 via-emerald-50 to-green-200 p-4">
@@ -116,27 +165,44 @@ export default function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
               />
             </div>
 
+            {/* Contraseña */}
+            <div>
+              <label htmlFor="password" className="block text-sm font-semibold text-black mb-1">
+                Contraseña *
+              </label>
+              <input
+                type="password"
+                id="password"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, password: e.target.value }))
+                }
+                placeholder="********"
+                className="w-full p-3 rounded-xl border border-black/30 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200 outline-none bg-white"
+                required
+              />
+            </div>
+
             {/* Tipo de usuario */}
             <div>
               <p className="block text-sm font-semibold text-black mb-2">
                 Perfil *
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {userTypes.map((type) => (
+                {profiles.map((profile) => (
                   <button
-                    key={type.value}
+                    key={profile.id}
                     type="button"
                     onClick={() =>
-                      setFormData((prev) => ({ ...prev, userType: type.value }))
+                      setFormData((prev) => ({ ...prev, userType: profile.id }))
                     }
                     className={`flex items-center gap-2 p-3 rounded-xl border text-sm transition ${
-                      formData.userType === type.value
+                      formData.userType === profile.id
                         ? "bg-emerald-100 border-black/50 text-black"
                         : "bg-white border-black/20 text-black hover:border-black/40"
                     }`}
                   >
-                    <span>{type.icon}</span>
-                    {type.label}
+                    {profile.tipo}
                   </button>
                 ))}
               </div>
@@ -152,19 +218,19 @@ export default function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
               </label>
               <select
                 id="experience"
-                value={formData.experience}
+                value={formData.experience ?? ""}
                 onChange={(e) =>
                   setFormData((prev) => ({
                     ...prev,
-                    experience: e.target.value,
+                    experience: Number(e.target.value),
                   }))
                 }
                 className="w-full p-3 rounded-xl border border-black/30 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200 outline-none bg-white"
               >
                 <option value="">Selecciona tu nivel</option>
-                {experienceLevels.map((level) => (
-                  <option key={level.value} value={level.value}>
-                    {level.label}
+                {experiences.map((exp) => (
+                  <option key={exp.id} value={exp.id}>
+                    {exp.nivel}
                   </option>
                 ))}
               </select>
